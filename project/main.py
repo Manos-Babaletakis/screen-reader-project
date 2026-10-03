@@ -1,139 +1,68 @@
 """
-Okey Bot - Main Entry Point
-Orchestrates card recognition, decision making, and game automation
+Okey Bot.
+    python main.py          -> DRY RUN: reads the table and shows the best move, never clicks
+    python main.py --play   -> plays for you (slam the mouse into a screen corner to abort)
 """
-
+import sys
+import time
 from card_recognizer import CardRecognizer
 from decision_engine import DecisionEngine
 from game_automation import GameAutomation
-from config import TIMINGS, DEBUG
-import time
+from config import TIMINGS, HAND_SIZE
 
 
-class OkeyBot:
-    """Main bot that orchestrates all components"""
-    
-    def __init__(self):
-        """Initialize all bot components"""
-        print("=" * 50)
-        print("OKEY BOT - Initializing...")
-        print("=" * 50)
-        
-        self.recognizer = CardRecognizer()
-        self.decision_engine = DecisionEngine()
-        self.automator = GameAutomation()
-        
-        self.iteration = 0
-        self.running = False
-        
-        print("\n✓ All components initialized!")
-        print("\nInstructions:")
-        print("  1. Focus the game window")
-        print("  2. Press ENTER to start the bot")
-        print("  3. Move mouse to TOP-LEFT CORNER to emergency stop")
-        print("=" * 50)
-    
-    def run(self):
-        """Main bot loop - recognizes cards, makes decisions, executes actions"""
-        self.running = True
-        
-        print("\n🤖 Bot is running... (move mouse to corner to stop)\n")
-        
-        while self.running:
-            self.iteration += 1
-            
-            try:
-                # ========== STEP 1: READ CARDS ==========
-                if DEBUG:
-                    print(f"\n{'='*50}")
-                    print(f"ITERATION {self.iteration}")
-                    print(f"{'='*50}")
-                
-                print(f"\n[{self.iteration}] Reading cards...")
-                cards = self.recognizer.read_cards()
-                
-                if not cards:
-                    print("  ⚠ No cards detected. Waiting...")
-                    self.automator.wait(TIMINGS["loop_delay"])
-                    continue
-                
-                # Display detected cards
-                print(f"  ✓ Detected {len(cards)} cards:")
-                for card in cards:
-                    print(f"    • {card['color']:6s} {card['number']}")
-                
-                # ========== STEP 2: MAKE DECISION ==========
-                print(f"\n[{self.iteration}] Making decision...")
-                decision = self.decision_engine.decide(cards)
-                
-                # Display decision
-                print(f"  ✓ Decision: {decision['action'].upper()}")
-                print(f"    Reason: {decision['reason']}")
-                
-                # ========== STEP 3: EXECUTE DECISION ==========
-                print(f"\n[{self.iteration}] Executing action...")
-                self.automator.execute_decision(cards, decision)
-                print(f"  ✓ Action completed")
-                
-                # ========== STEP 4: WAIT FOR GAME ==========
-                print(f"\n[{self.iteration}] Waiting for game to respond...")
-                self.automator.wait(TIMINGS["loop_delay"])
-                
-            except KeyboardInterrupt:
-                print("\n\n❌ Bot stopped by user (Ctrl+C)")
-                self.running = False
-                break
-            
-            except Exception as e:
-                print(f"\n⚠ Error occurred: {e}")
-                if DEBUG:
-                    import traceback
-                    traceback.print_exc()
-                
-                print("  Waiting before retry...")
-                self.automator.wait(TIMINGS["loop_delay"])
-        
-        print("\n" + "=" * 50)
-        print("Bot shutdown complete")
-        print("=" * 50)
-    
-    def test_card_recognition(self):
-        """Test mode: just read cards without playing"""
-        print("\n🧪 TEST MODE - Card Recognition Only")
-        print("=" * 50)
-        
-        try:
-            for i in range(5):
-                print(f"\nTest {i+1}/5:")
-                cards = self.recognizer.read_cards()
-                
-                if cards:
-                    print(f"✓ Detected {len(cards)} cards:")
-                    for card in cards:
-                        print(f"  • {card['color']:6s} {card['number']}")
-                else:
-                    print("⚠ No cards detected")
-                
-                if i < 4:
-                    time.sleep(2)
-        
-        except Exception as e:
-            print(f"Error: {e}")
-            import traceback
-            traceback.print_exc()
+def wait_for_change(recognizer, prev_hand, expected):
+    """After an action: poll until the table shows a different set of cards."""
+    t0 = time.time()
+    while time.time() - t0 < TIMINGS["settle_timeout"]:
+        time.sleep(TIMINGS["poll_delay"])
+        cards = recognizer.read_cards(expected)
+        if cards and {(c["color"], c["number"]) for c in cards} != prev_hand:
+            return cards
+    return None
 
 
 def main():
-    """Entry point"""
-    bot = OkeyBot()
-    
-    # Uncomment ONE of the following:
-    
-    # Option 1: Run full bot
-    bot.run()
-    
-    # Option 2: Test card recognition only (uncomment to use)
-    # bot.test_card_recognition()
+    play = "--play" in sys.argv
+    recognizer, engine = CardRecognizer(), DecisionEngine()
+    auto = GameAutomation(dry_run=not play)
+    print("PLAY MODE - clicking for real" if play else "DRY RUN - no clicks (use --play to play)")
+    print("Open the Okey window with 5 cards showing. Ctrl+C to stop.\n")
+
+    cards, fails = None, 0
+    try:
+        while True:
+            if cards is None:
+                cards = recognizer.read_cards(engine.expected_on_table())
+                if not cards:
+                    time.sleep(0.5)
+                    continue
+            decision = engine.decide(cards)
+            if decision["action"] == "wait":
+                fails += 1
+                print(f"  ! {decision['reason']}")
+                cards = None
+                if fails > 20:
+                    print("Too many unreadable frames - run calibrate.py"); break
+                time.sleep(0.3)
+                continue
+            fails = 0
+            if decision["action"] == "end":
+                print(f"\nGame over. Final score: {engine.tracker.score}")
+                print(engine.tracker.summary()); break
+
+            print(f"-> {decision['action'].upper()}: {decision['reason']}   "
+                  f"[score {engine.tracker.score}, deck {engine.tracker.deck_left}]")
+            if not play:
+                print("   (dry run - perform this move yourself, then press Enter)")
+                input(); cards = None; continue
+
+            prev = {(c["color"], c["number"]) for c in cards}
+            auto.execute(cards, decision)
+            cards = wait_for_change(recognizer, prev, engine.expected_on_table())
+    except KeyboardInterrupt:
+        print("\nStopped.")
+    print("\n" + engine.tracker.summary())
 
 
 if __name__ == "__main__":
