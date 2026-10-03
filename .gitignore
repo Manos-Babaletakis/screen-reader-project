@@ -1,6 +1,6 @@
 __pycache__/
 *.pyc
 .venv/
-project/screenshots/
-project/calibrate_*.png
+screenshots/
+calibrate_*.png
 *.msix

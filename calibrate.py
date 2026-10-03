@@ -18,4 +18,4 @@ else:
         cv2.putText(frame, f'{c["color"]} {c["number"]}', (x, y - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
     cv2.imwrite("calibrate_result.png", frame)
     print("Saved calibrate_result.png (green boxes + what was read) and screenshots/*.png (each card).")
-    print("If a colour is wrong, tune COLOR_RANGES in config.py; a red card has not been verified yet.")
+    print("If a colour is wrong, tune COLOR_RANGES in config.py.")
