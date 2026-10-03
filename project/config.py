@@ -24,8 +24,8 @@ COLOR_RANGES = {
 }
 
 # ============ SOLVER ============
-SOLVER_TIME_BUDGET = 0.8       # seconds per decision (more = slightly better play)
-SOLVER_EXACT_LIMIT = 7         # solve exactly when <= this many cards are left in the deck
+SOLVER_TIME_BUDGET = 2         # seconds per decision (more = slightly better play)
+SOLVER_EXACT_LIMIT = 9         # solve exactly when <= this many cards are left in the deck
 
 # ============ TIMING (seconds) ============
 TIMINGS = {
@@ -36,5 +36,5 @@ TIMINGS = {
 
 # ============ DEBUG ============
 DEBUG = True
-SAVE_SCREENSHOTS = False       # save each read card to SCREENSHOT_DIR (for debugging)
+SAVE_SCREENSHOTS = True       # save each read card to SCREENSHOT_DIR (for debugging)
 SCREENSHOT_DIR = "./screenshots"

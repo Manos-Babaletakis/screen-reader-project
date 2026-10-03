@@ -44,7 +44,7 @@ class CardRecognizer:
 
     def find_cards(self, frame):
         """Return up to HAND_SIZE card boxes [(x,y,w,h,colour)] forming one row, left->right."""
-        H = frame.shape[0]
+        H = self.monitor["height"]      # card size is relative to the SCREEN, even for a cropped frame
         hmin, hmax = CARD_H_FRAC[0] * H, CARD_H_FRAC[1] * H
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         blobs = []
@@ -99,7 +99,8 @@ class CardRecognizer:
             self._ocr, self._ocr_kind = pytesseract, "tesseract"
         except Exception:
             import easyocr
-            self._ocr, self._ocr_kind = easyocr.Reader(['en'], gpu=False), "easyocr"
+            # verbose=False: easyocr's download progress bar crashes cp1252 consoles
+            self._ocr, self._ocr_kind = easyocr.Reader(['en'], gpu=False, verbose=False), "easyocr"
         if DEBUG:
             print(f"OCR backend: {self._ocr_kind}")
 

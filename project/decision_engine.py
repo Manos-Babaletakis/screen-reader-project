@@ -37,10 +37,19 @@ class DecisionEngine:
         used = len(t.played) + len(t.discarded)
         return min(HAND_SIZE, N_CARDS - used) if used or t.on_table else HAND_SIZE
 
+    def _follows_pending(self, ids):
+        """Is the new table a possible result of the pending move? (guards against a misread digit)"""
+        removed = set(self._pending[1]) if self._pending[0] == 'play' else {self._pending[1]}
+        prev, now = set(self._prev_ids), set(ids)
+        return prev - removed <= now and not (now & removed) and now - prev <= self.tracker.unseen
+
     def _commit_pending(self, ids):
+        """Returns False if the table changed in a way the pending move cannot explain."""
         if self._pending is None:
-            return
+            return True
         if set(ids) != set(self._prev_ids or []):       # the table changed -> move happened
+            if not self._follows_pending(ids):
+                return False
             if self._pending[0] == 'play':
                 self.tracker.record_play(self._pending[1], self._pending[2])
             else:
@@ -48,6 +57,7 @@ class DecisionEngine:
         elif DEBUG:
             print("  (table unchanged - previous move did not register, retrying)")
         self._pending = None
+        return True
 
     def decide(self, cards):
         ids = self.cards_to_ids(cards)
@@ -62,7 +72,9 @@ class DecisionEngine:
                 print("  new game detected - resetting tracker")
             self.new_game()
 
-        self._commit_pending(ids)
+        if not self._commit_pending(ids):
+            return {"action": "wait", "card_indices": [],
+                    "reason": "table does not match the last move (misread?) - re-reading"}
         t.observe(ids)
         self._prev_ids = ids
 
