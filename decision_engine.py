@@ -5,8 +5,8 @@ expected final score, and keeps the CardTracker up to date.
 A move is only committed to the tracker once the table is seen to have changed
 (so a click that didn't register can never corrupt the played/discarded lists).
 """
-from config import SOLVER_TIME_BUDGET, SOLVER_EXACT_LIMIT, COLOURS, DEBUG
-from okey_rules import card_id, card_name
+from config import SOLVER_TIME_BUDGET, SOLVER_EXACT_LIMIT, COLOURS, HAND_SIZE, DEBUG
+from okey_rules import card_id, card_name, N_CARDS
 from okey_solver import OkeySolver
 from card_tracker import CardTracker
 
@@ -30,12 +30,13 @@ class DecisionEngine:
         return ids if len(set(ids)) == len(ids) else None
 
     def expected_on_table(self):
-        """How many cards should be face up right now (fewer once the deck runs out)."""
+        """How many cards should be face up once the last move lands (fewer once the deck
+        runs out, 0 after the final combo). If the move did not register there are MORE."""
         t = self.tracker
-        from okey_rules import N_CARDS
-        from config import HAND_SIZE
         used = len(t.played) + len(t.discarded)
-        return min(HAND_SIZE, N_CARDS - used) if used or t.on_table else HAND_SIZE
+        if self._pending is not None:
+            used += 3 if self._pending[0] == 'play' else 1
+        return min(HAND_SIZE, N_CARDS - used)
 
     def _follows_pending(self, ids):
         """Is the new table a possible result of the pending move? (guards against a misread digit)"""

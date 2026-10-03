@@ -16,6 +16,11 @@ class GameAutomation:
         x, y, w, h = card["position"]
         return x + w // 2, y + h // 2
 
+    def click(self, pos):
+        if not self.dry_run:
+            pyautogui.click(*pos, button="left")
+            time.sleep(TIMINGS["click_delay"])
+
     def execute(self, cards, decision):
         action, idxs = decision["action"], decision["card_indices"]
         if self.dry_run or action not in ("use", "discard"):

@@ -11,6 +11,8 @@ from config import COLOR_RANGES, COLOURS, MAX_NUMBER, HAND_SIZE, DEBUG, SAVE_SCR
 
 # card face size relative to screen height (1080p: ~40x55 px)
 CARD_H_FRAC = (0.035, 0.085)
+# the "End" button (restarts the game), cut from a 1:1 screenshot of the card window
+END_TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "end_button.png")
 
 
 class CardRecognizer:
@@ -20,6 +22,7 @@ class CardRecognizer:
         self.row_box = None            # (x, y, w, h) of the card row, cached for speed
         self._ocr = None
         self._ocr_kind = None
+        self._end_tpl = None
         if SAVE_SCREENSHOTS:
             os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 
@@ -68,6 +71,19 @@ class CardRecognizer:
             if len(dedup) > len(best):
                 best = dedup
         return best[:HAND_SIZE]
+
+    def find_end_button(self, min_score=0.7):
+        """SCREEN (x, y) of the centre of the End button, or None if it is not visible."""
+        if self._end_tpl is None:
+            self._end_tpl = cv2.imread(END_TEMPLATE)
+        res = cv2.matchTemplate(self.grab(), self._end_tpl, cv2.TM_CCOEFF_NORMED)
+        _, score, _, (x, y) = cv2.minMaxLoc(res)
+        if DEBUG:
+            print(f"  End button match {score:.2f}")
+        if score < min_score:
+            return None
+        th, tw = self._end_tpl.shape[:2]
+        return x + tw // 2 + self.monitor["left"], y + th // 2 + self.monitor["top"]
 
     # ----------------------------------------------------------------- reading
     @staticmethod
