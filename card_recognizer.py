@@ -18,7 +18,7 @@ TEMPLATES = {
     "yes": os.path.join(_HERE, "yes_button.png"),    # confirms a discard
     "deck": os.path.join(_HERE, "deck.png"),         # left-click draws a card
 }
-TEMPLATE_SCALES = [1.0, 1.25, 0.8, 1.1, 0.9, 1.5, 0.67]
+TEMPLATE_SCALES = [1.0, 0.95, 1.05, 0.9, 1.1, 0.85, 1.15, 0.8, 1.2, 1.25, 0.75, 1.3]
 
 
 class CardRecognizer:
@@ -86,15 +86,21 @@ class CardRecognizer:
             self._tpl[name] = (cv2.imread(TEMPLATES[name]), None)
         tpl, known_scale = self._tpl[name]
         frame = self.grab()
-        best = (-1, None, None)
-        for s in [known_scale] if known_scale else TEMPLATE_SCALES:
-            t = tpl if s == 1.0 else cv2.resize(tpl, None, fx=s, fy=s, interpolation=cv2.INTER_LINEAR)
-            if t.shape[0] > frame.shape[0] or t.shape[1] > frame.shape[1]:
-                continue
-            _, score, _, loc = cv2.minMaxLoc(cv2.matchTemplate(frame, t, cv2.TM_CCOEFF_NORMED))
-            if score > best[0]:
-                best = (score, s, (loc[0] + t.shape[1] // 2, loc[1] + t.shape[0] // 2))
-        score, s, centre = best
+
+        def match(scales):
+            best = (-1, None, None)
+            for s in scales:
+                t = tpl if s == 1.0 else cv2.resize(tpl, None, fx=s, fy=s, interpolation=cv2.INTER_LINEAR)
+                if t.shape[0] > frame.shape[0] or t.shape[1] > frame.shape[1]:
+                    continue
+                _, score, _, loc = cv2.minMaxLoc(cv2.matchTemplate(frame, t, cv2.TM_CCOEFF_NORMED))
+                if score > best[0]:
+                    best = (score, s, (loc[0] + t.shape[1] // 2, loc[1] + t.shape[0] // 2))
+            return best
+
+        score, s, centre = match([known_scale] if known_scale else TEMPLATE_SCALES)
+        if score < min_score and known_scale:          # remembered scale missed: try them all
+            score, s, centre = match(TEMPLATE_SCALES)
         if DEBUG:
             print(f"  {name} match {score:.2f} (scale {s})")
         if score < min_score:
