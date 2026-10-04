@@ -34,8 +34,8 @@ def wait_for_change(recognizer, prev_hand, expected):
     return None
 
 
-def confirm_discard(recognizer, auto):
-    """Right-click opens 'Do you really want to discard this card?' - click Yes."""
+def confirm_yes(recognizer, auto, what):
+    """Discarding a card and clicking End both open a Yes/No dialog - click Yes."""
     t0 = time.time()
     while time.time() - t0 < TIMINGS["confirm_timeout"]:
         pos = recognizer.find_yes_button()
@@ -47,7 +47,7 @@ def confirm_discard(recognizer, auto):
                 time.sleep(TIMINGS["poll_delay"])
             return True
         time.sleep(TIMINGS["poll_delay"])
-    print("  ! discard confirmation (Yes) not found")
+    print(f"  ! {what} confirmation (Yes) not found")
     return False
 
 
@@ -74,6 +74,7 @@ def restart_game(recognizer, auto, last_hand):
             time.sleep(1)
             continue
         auto.click(pos)
+        confirm_yes(recognizer, auto, "end game")
         time.sleep(TIMINGS["draw_delay"])
         t0 = time.time()
         while time.time() - t0 < TIMINGS["restart_timeout"]:
@@ -156,7 +157,7 @@ def main():
             prev = hand_of(cards)
             auto.execute(cards, decision)
             if decision["action"] == "discard":
-                confirm_discard(recognizer, auto)
+                confirm_yes(recognizer, auto, "discard")
             time.sleep(TIMINGS["draw_delay"])
             draw_cards(recognizer, auto, engine.expected_on_table())
             cards = wait_for_change(recognizer, prev, engine.expected_on_table())
