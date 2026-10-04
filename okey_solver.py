@@ -41,7 +41,7 @@ def _removed_info(mv):
 
 class OkeySolver:
     def __init__(self, time_budget=0.8, exact_limit=7, min_samples=60,
-                 max_samples=3000, base_threshold=60, endgame_cutoff=3, seed=None):
+                 max_samples=3000, base_threshold=40, endgame_cutoff=3, seed=None):
         self.time_budget = time_budget
         self.exact_limit = exact_limit
         self.min_samples = min_samples

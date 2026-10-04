@@ -17,5 +17,7 @@ else:
         cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
         cv2.putText(frame, f'{c["color"]} {c["number"]}', (x, y - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
     cv2.imwrite("calibrate_result.png", frame)
+    print(f"Screen {r.monitor['width']}x{r.monitor['height']}, card height {r.card_h:.0f}px "
+          f"-> UI scale {r.scale:.2f} (buttons are matched at {r.template_scale:.2f}x)")
     print("Saved calibrate_result.png (green boxes + what was read) and screenshots/*.png (each card).")
     print("If a colour is wrong, tune COLOR_RANGES in config.py.")

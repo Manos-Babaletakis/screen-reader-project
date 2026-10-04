@@ -3,14 +3,22 @@ Card recognizer: finds the row of 5 face-up cards ANYWHERE on screen (the window
 movable), then reads each card's colour (hue of the card face) and number (the dark
 digit printed on it).
 """
+import dpi  # noqa: F401  (must come before mss - see dpi.py)
 import os
 import cv2
 import numpy as np
 import mss
 from config import COLOR_RANGES, COLOURS, MAX_NUMBER, HAND_SIZE, DEBUG, SAVE_SCREENSHOTS, SCREENSHOT_DIR
 
-# card face size relative to screen height (1080p: ~40x55 px)
-CARD_H_FRAC = (0.035, 0.085)
+# Everything scales with the game's UI size, measured from the cards themselves.
+# REF_CARD: card face size the digit reader was tuned on (cards are resized to it).
+REF_CARD_W, REF_CARD_H = 38, 52
+# Card height in the screenshot the button/deck templates were cut from (they match at
+# 0.8x on a screen where cards are 52 px - i.e. they were cut at 125 % zoom).
+TEMPLATE_CARD_H = 65
+# card height relative to screen height, while the real size is still unknown (wide on purpose)
+CARD_H_FRAC = (0.02, 0.12)
+CARD_H_TOL = (0.8, 1.25)       # once the card height is known: accept this range around it
 # screen elements found by template matching, cut from screenshots of the card window
 _HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES = {
@@ -18,7 +26,8 @@ TEMPLATES = {
     "yes": os.path.join(_HERE, "yes_button.png"),    # confirms a discard
     "deck": os.path.join(_HERE, "deck.png"),         # left-click draws a card
 }
-TEMPLATE_SCALES = [1.0, 0.95, 1.05, 0.9, 1.1, 0.85, 1.15, 0.8, 1.2, 1.25, 0.75, 1.3]
+# full sweep, only used when no card has been seen yet (so the UI scale is unknown)
+SWEEP_SCALES = [round(0.5 + 0.05 * i, 2) for i in range(31)]          # 0.50 .. 2.00
 
 
 class CardRecognizer:
@@ -26,9 +35,11 @@ class CardRecognizer:
         self.sct = mss.mss()
         self.monitor = self.sct.monitors[1]
         self.row_box = None            # (x, y, w, h) of the card row, cached for speed
+        self.card_h = None             # measured card height in px (sets the UI scale)
         self._ocr = None
         self._ocr_kind = None
         self._tpl = {}                 # name -> (image, scale that matched)
+        self._tpl_cache = {}           # (name, scale) -> resized template
         if SAVE_SCREENSHOTS:
             os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 
@@ -51,14 +62,30 @@ class CardRecognizer:
             masks[name] = m
         return masks
 
-    def find_cards(self, frame):
-        """Return up to HAND_SIZE card boxes [(x,y,w,h,colour)] forming one row, left->right."""
-        H = self.monitor["height"]      # card size is relative to the SCREEN, even for a cropped frame
-        hmin, hmax = CARD_H_FRAC[0] * H, CARD_H_FRAC[1] * H
+    @property
+    def scale(self):
+        """Card size relative to REF_CARD_H (None = no card row seen yet)."""
+        return self.card_h / REF_CARD_H if self.card_h else None
+
+    @property
+    def template_scale(self):
+        """How much the templates must be resized to match the screen (None = unknown)."""
+        return self.card_h / TEMPLATE_CARD_H if self.card_h else None
+
+    def find_cards(self, frame, any_size=False):
+        """Return up to HAND_SIZE card boxes [(x,y,w,h,colour)] forming one row, left->right.
+        Once the card height is known only cards of about that size count (fewer false
+        positives); any_size=True searches every plausible size again."""
+        if self.card_h and not any_size:
+            hmin, hmax = CARD_H_TOL[0] * self.card_h, CARD_H_TOL[1] * self.card_h
+        else:
+            H = self.monitor["height"]  # relative to the SCREEN, even for a cropped frame
+            hmin, hmax = CARD_H_FRAC[0] * H, CARD_H_FRAC[1] * H
+        k = max(3, int(round(5 * (self.scale or 1))))
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         blobs = []
         for name, m in self._colour_masks(hsv).items():
-            m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+            m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
             n, _, stats, _ = cv2.connectedComponentsWithStats(m)
             for i in range(1, n):
                 x, y, w, h, area = stats[i]
@@ -78,35 +105,53 @@ class CardRecognizer:
                 best = dedup
         return best[:HAND_SIZE]
 
+    def _scaled_template(self, name, s):
+        key = (name, s)
+        if key not in self._tpl_cache:
+            tpl = self._tpl[name][0]
+            self._tpl_cache[key] = tpl if s == 1.0 else cv2.resize(
+                tpl, None, fx=s, fy=s, interpolation=cv2.INTER_AREA if s < 1 else cv2.INTER_LINEAR)
+        return self._tpl_cache[key]
+
     def _find_template(self, name, min_score=0.75, sweep=False):
         """SCREEN (x, y) of the centre of a template image, or None if it is not visible.
-        Only the remembered scale (initially 1:1) is tried - fast enough to poll. With
-        sweep=True a miss retries every scale in TEMPLATE_SCALES (~3.5 s), in case the
-        template was cut at a different zoom than the screen; a scale that matches is kept."""
+        Tries the scale that matched last time (one match - fast enough to poll), then the
+        scale implied by the measured card size (+-8 %). With sweep=True a miss retries
+        every scale from 0.5x to 2x (coarse pass at half resolution, then refined).
+        A scale that matches is remembered."""
         if name not in self._tpl:
             self._tpl[name] = (cv2.imread(TEMPLATES[name]), None)
-        tpl, known_scale = self._tpl[name]
+        known_scale = self._tpl[name][1]
         frame = self.grab()
 
-        def match(scales):
+        def match(scales, img=frame, shrink=1):
             best = (-1, None, None)
             for s in scales:
-                t = tpl if s == 1.0 else cv2.resize(tpl, None, fx=s, fy=s, interpolation=cv2.INTER_LINEAR)
-                if t.shape[0] > frame.shape[0] or t.shape[1] > frame.shape[1]:
+                t = self._scaled_template(name, round(s / shrink, 3))
+                if t.shape[0] > img.shape[0] or t.shape[1] > img.shape[1] or min(t.shape[:2]) < 6:
                     continue
-                _, score, _, loc = cv2.minMaxLoc(cv2.matchTemplate(frame, t, cv2.TM_CCOEFF_NORMED))
+                _, score, _, loc = cv2.minMaxLoc(cv2.matchTemplate(img, t, cv2.TM_CCOEFF_NORMED))
                 if score > best[0]:
-                    best = (score, s, (loc[0] + t.shape[1] // 2, loc[1] + t.shape[0] // 2))
+                    best = (score, s, ((loc[0] + t.shape[1] // 2) * shrink, (loc[1] + t.shape[0] // 2) * shrink))
             return best
 
-        score, s, centre = match([known_scale or 1.0])
+        score = -1
+        if known_scale:                                # usual case: one match
+            score, s, centre = match([known_scale])
+        if score < min_score:
+            c = self.template_scale or 1.0
+            guesses = [round(c * f, 3) for f in (1.0, 0.96, 1.04, 0.92, 1.08)]
+            score, s, centre = match([g for g in guesses if g != known_scale])
         if score < min_score and sweep:                # missed: try every scale
-            score, s, centre = match(TEMPLATE_SCALES)
+            half = cv2.resize(frame, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA)
+            _, coarse, _ = match(SWEEP_SCALES, half, shrink=2)
+            if coarse is not None:
+                score, s, centre = match([round(coarse * f, 3) for f in (0.97, 0.985, 1.0, 1.015, 1.03)])
         if DEBUG:
             print(f"  {name} match {score:.2f} (scale {s})")
         if score < min_score:
             return None
-        self._tpl[name] = (tpl, s)
+        self._tpl[name] = (self._tpl[name][0], s)
         return centre[0] + self.monitor["left"], centre[1] + self.monitor["top"]
 
     def find_end_button(self):
@@ -114,9 +159,10 @@ class CardRecognizer:
 
     def find_yes_button(self):
         """The 'Yes' of the discard / end-game confirmation dialogs.
-        Keep min_score high: with no dialog open, random screen areas score ~0.56-0.59,
-        and the 'No' button scores ~0.68 against this template."""
-        return self._find_template("yes", min_score=0.8)
+        With no dialog open, random screen areas score ~0.56-0.59. The 'No' button scores
+        ~0.68, but it is always shown next to 'Yes', which scores higher, so the best match
+        is Yes. 0.75 leaves room for the small score loss of a rescaled template."""
+        return self._find_template("yes", min_score=0.75)
 
     def find_deck(self):
         return self._find_template("deck")
@@ -187,20 +233,36 @@ class CardRecognizer:
         if frame is None:
             frame, ox, oy = self.grab(), 0, 0
             found = self.find_cards(frame)
+            if len(found) < expected and self.card_h:
+                # the game's UI size may have changed: look for cards of any size, but only
+                # trust a new size from a row of at least 3 cards
+                again = self.find_cards(frame, any_size=True)
+                if len(again) >= max(expected, 3):
+                    found, self.card_h = again, None
         if len(found) < expected or not found:
             self.row_box = None
             if DEBUG:
                 print(f"  found {len(found)}/{expected} cards")
             return []
+        if self.card_h is None and len(found) >= 3:
+            self.card_h = float(np.median([b[3] for b in found]))
+            if DEBUG:
+                print(f"  card height {self.card_h:.0f}px -> UI scale {self.scale:.2f}")
         xs = [b[0] for b in found]; ys = [b[1] for b in found]
         x0, y0 = min(xs) + ox, min(ys) + oy
         x1 = max(b[0] + b[2] for b in found) + ox; y1 = max(b[1] + b[3] for b in found) + oy
-        pad = 20
-        self.row_box = (max(0, x0 - pad), max(0, y0 - pad), (x1 - x0) + 2 * pad, (y1 - y0) + 2 * pad)
+        pad = int(0.4 * max(b[3] for b in found))
+        bx, by = max(0, x0 - pad), max(0, y0 - pad)
+        self.row_box = (bx, by, min(x1 + pad, self.monitor["width"]) - bx,
+                        min(y1 + pad, self.monitor["height"]) - by)
 
         cards = []
         for i, (x, y, w, h, colour) in enumerate(found):
-            glyph = self._glyph(frame[y:y + h, x:x + w])
+            # bring every card to the size the digit reader was tuned on
+            face = frame[y:y + h, x:x + w]
+            face = cv2.resize(face, (REF_CARD_W, REF_CARD_H),
+                              interpolation=cv2.INTER_AREA if h > REF_CARD_H else cv2.INTER_CUBIC)
+            glyph = self._glyph(face)
             number = self._read_digit(glyph) if glyph is not None else None
             cards.append({"color": colour, "number": number, "index": i,
                           "position": (int(x + ox + self.monitor["left"]), int(y + oy + self.monitor["top"]), int(w), int(h))})

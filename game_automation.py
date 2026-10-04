@@ -1,4 +1,5 @@
 """Mouse automation: left-click = select card, right-click = discard card."""
+import dpi  # noqa: F401  (same pixel coordinates as the screen capture - see dpi.py)
 import ctypes
 import ctypes.wintypes as wt
 import time
