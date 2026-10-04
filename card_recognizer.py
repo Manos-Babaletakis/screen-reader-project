@@ -78,10 +78,11 @@ class CardRecognizer:
                 best = dedup
         return best[:HAND_SIZE]
 
-    def _find_template(self, name, min_score=0.75):
+    def _find_template(self, name, min_score=0.75, sweep=False):
         """SCREEN (x, y) of the centre of a template image, or None if it is not visible.
-        Templates may have been cut at a different zoom than the screen, so several scales
-        are tried until one matches; that scale is then remembered."""
+        Only the remembered scale (initially 1:1) is tried - fast enough to poll. With
+        sweep=True a miss retries every scale in TEMPLATE_SCALES (~3.5 s), in case the
+        template was cut at a different zoom than the screen; a scale that matches is kept."""
         if name not in self._tpl:
             self._tpl[name] = (cv2.imread(TEMPLATES[name]), None)
         tpl, known_scale = self._tpl[name]
@@ -98,8 +99,8 @@ class CardRecognizer:
                     best = (score, s, (loc[0] + t.shape[1] // 2, loc[1] + t.shape[0] // 2))
             return best
 
-        score, s, centre = match([known_scale] if known_scale else TEMPLATE_SCALES)
-        if score < min_score and known_scale:          # remembered scale missed: try them all
+        score, s, centre = match([known_scale or 1.0])
+        if score < min_score and sweep:                # missed: try every scale
             score, s, centre = match(TEMPLATE_SCALES)
         if DEBUG:
             print(f"  {name} match {score:.2f} (scale {s})")
@@ -109,10 +110,12 @@ class CardRecognizer:
         return centre[0] + self.monitor["left"], centre[1] + self.monitor["top"]
 
     def find_end_button(self):
-        return self._find_template("end")
+        return self._find_template("end", sweep=True)
 
     def find_yes_button(self):
-        """The 'Yes' of the 'Do you really want to discard this card?' dialog."""
+        """The 'Yes' of the discard / end-game confirmation dialogs.
+        Keep min_score high: with no dialog open, random screen areas score ~0.56-0.59,
+        and the 'No' button scores ~0.68 against this template."""
         return self._find_template("yes", min_score=0.8)
 
     def find_deck(self):
