@@ -11,8 +11,14 @@ from config import COLOR_RANGES, COLOURS, MAX_NUMBER, HAND_SIZE, DEBUG, SAVE_SCR
 
 # card face size relative to screen height (1080p: ~40x55 px)
 CARD_H_FRAC = (0.035, 0.085)
-# the "End" button (restarts the game), cut from a 1:1 screenshot of the card window
-END_TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "end_button.png")
+# screen elements found by template matching, cut from screenshots of the card window
+_HERE = os.path.dirname(os.path.abspath(__file__))
+TEMPLATES = {
+    "end": os.path.join(_HERE, "end_button.png"),    # restarts the game
+    "yes": os.path.join(_HERE, "yes_button.png"),    # confirms a discard
+    "deck": os.path.join(_HERE, "deck.png"),         # left-click draws a card
+}
+TEMPLATE_SCALES = [1.0, 1.25, 0.8, 1.1, 0.9, 1.5, 0.67]
 
 
 class CardRecognizer:
@@ -22,7 +28,7 @@ class CardRecognizer:
         self.row_box = None            # (x, y, w, h) of the card row, cached for speed
         self._ocr = None
         self._ocr_kind = None
-        self._end_tpl = None
+        self._tpl = {}                 # name -> (image, scale that matched)
         if SAVE_SCREENSHOTS:
             os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 
@@ -72,18 +78,43 @@ class CardRecognizer:
                 best = dedup
         return best[:HAND_SIZE]
 
-    def find_end_button(self, min_score=0.7):
-        """SCREEN (x, y) of the centre of the End button, or None if it is not visible."""
-        if self._end_tpl is None:
-            self._end_tpl = cv2.imread(END_TEMPLATE)
-        res = cv2.matchTemplate(self.grab(), self._end_tpl, cv2.TM_CCOEFF_NORMED)
-        _, score, _, (x, y) = cv2.minMaxLoc(res)
+    def _find_template(self, name, min_score=0.75):
+        """SCREEN (x, y) of the centre of a template image, or None if it is not visible.
+        Templates may have been cut at a different zoom than the screen, so several scales
+        are tried until one matches; that scale is then remembered."""
+        if name not in self._tpl:
+            self._tpl[name] = (cv2.imread(TEMPLATES[name]), None)
+        tpl, known_scale = self._tpl[name]
+        frame = self.grab()
+        best = (-1, None, None)
+        for s in [known_scale] if known_scale else TEMPLATE_SCALES:
+            t = tpl if s == 1.0 else cv2.resize(tpl, None, fx=s, fy=s, interpolation=cv2.INTER_LINEAR)
+            if t.shape[0] > frame.shape[0] or t.shape[1] > frame.shape[1]:
+                continue
+            _, score, _, loc = cv2.minMaxLoc(cv2.matchTemplate(frame, t, cv2.TM_CCOEFF_NORMED))
+            if score > best[0]:
+                best = (score, s, (loc[0] + t.shape[1] // 2, loc[1] + t.shape[0] // 2))
+        score, s, centre = best
         if DEBUG:
-            print(f"  End button match {score:.2f}")
+            print(f"  {name} match {score:.2f} (scale {s})")
         if score < min_score:
             return None
-        th, tw = self._end_tpl.shape[:2]
-        return x + tw // 2 + self.monitor["left"], y + th // 2 + self.monitor["top"]
+        self._tpl[name] = (tpl, s)
+        return centre[0] + self.monitor["left"], centre[1] + self.monitor["top"]
+
+    def find_end_button(self):
+        return self._find_template("end")
+
+    def find_yes_button(self):
+        """The 'Yes' of the 'Do you really want to discard this card?' dialog."""
+        return self._find_template("yes", min_score=0.8)
+
+    def find_deck(self):
+        return self._find_template("deck")
+
+    def count_cards(self):
+        """How many face-up cards are in the row (no OCR - fast)."""
+        return len(self.find_cards(self.grab()))
 
     # ----------------------------------------------------------------- reading
     @staticmethod

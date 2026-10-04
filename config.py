@@ -29,9 +29,13 @@ SOLVER_EXACT_LIMIT = 9         # solve exactly when <= this many cards are left 
 # ============ TIMING (seconds) ============
 TIMINGS = {
     "click_delay": 0.08,       # between clicks on cards
+    "hover_delay": 0.06,       # cursor rests on the card before pressing
+    "hold_delay": 0.06,        # how long the mouse button is held down
     "settle_timeout": 3.0,     # max wait for the table to change after an action
     "poll_delay": 0.15,        # between screen reads while waiting
     "restart_timeout": 5.0,    # max wait for a new game to appear after clicking End
+    "confirm_timeout": 0.5,    # max wait for the "discard this card?" Yes button
+    "draw_delay": 0.3,         # after each click on the deck (lets the card land)
 }
 
 # ============ DEBUG ============

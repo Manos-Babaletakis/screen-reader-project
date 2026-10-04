@@ -11,11 +11,10 @@ Based on Metin2 Okey Card Game rules:
 - 3 cards = minimum valid set
 - More cards = higher score
 
-**RUNS** - 3 or more consecutive cards of the same color
-- Example: 6♠, 7♠, 8♠, 9♠
+**RUNS** - exactly 3 consecutive cards of the same color
+- Example: 6♠, 7♠, 8♠
 - Must be consecutive (no gaps)
 - Same color only
-- Longer runs worth more points
 
 ### Game Flow
 
