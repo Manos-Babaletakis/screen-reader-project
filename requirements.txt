@@ -1,6 +1,5 @@
 opencv-python>=4.10,<5
 numpy>=2.1
 mss>=9.0
-pyautogui>=0.9.54
 easyocr>=1.7.2
 # optional, faster OCR: pip install pytesseract  (+ the Tesseract program itself)

@@ -1,0 +1,2 @@
+game level: SYSTEM | this script: administrator
+FAIL: The game runs at SYSTEM level - above administrator - so Windows drops every click the bot sends, even when the bot runs as administrator. Close the game and start it again normally (not via a tool or service that runs it as SYSTEM).

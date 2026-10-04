@@ -91,8 +91,10 @@ def relaunch_as_admin():
     normal process. Re-open the bot elevated (UAC prompt) in its own console window."""
     import ctypes, os
     args = " ".join(f'"{a}"' for a in [os.path.abspath(sys.argv[0])] + sys.argv[1:])
+    # an elevated cmd.exe ignores the start folder and opens in System32 -> cd there first
+    here = os.path.dirname(os.path.abspath(sys.argv[0]))
     rc = ctypes.windll.shell32.ShellExecuteW(
-        None, "runas", "cmd.exe", f'/k ""{sys.executable}" {args}"', os.getcwd(), 1)
+        None, "runas", "cmd.exe", f'/s /k "cd /d "{here}" && "{sys.executable}" {args}"', here, 1)
     return rc > 32
 
 

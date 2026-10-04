@@ -16,8 +16,9 @@ REF_CARD_W, REF_CARD_H = 38, 52
 # Card height in the screenshot the button/deck templates were cut from (they match at
 # 0.8x on a screen where cards are 52 px - i.e. they were cut at 125 % zoom).
 TEMPLATE_CARD_H = 65
-# card height relative to screen height, while the real size is still unknown (wide on purpose)
-CARD_H_FRAC = (0.02, 0.12)
+# card height relative to screen height, while the real size is still unknown (wide on purpose,
+# but not below 3 %: the floating blue damage numbers are ~2 % tall and form a 'row' too)
+CARD_H_FRAC = (0.03, 0.12)
 CARD_H_TOL = (0.8, 1.25)       # once the card height is known: accept this range around it
 # screen elements found by template matching, cut from screenshots of the card window
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -69,8 +70,9 @@ class CardRecognizer:
 
     @property
     def template_scale(self):
-        """How much the templates must be resized to match the screen (None = unknown)."""
-        return self.card_h / TEMPLATE_CARD_H if self.card_h else None
+        """How much the templates must be resized to match the screen. Before any card has
+        been measured (a new game starts with an empty table) assume the usual card size."""
+        return (self.card_h or REF_CARD_H) / TEMPLATE_CARD_H
 
     def find_cards(self, frame, any_size=False):
         """Return up to HAND_SIZE card boxes [(x,y,w,h,colour)] forming one row, left->right.
@@ -139,7 +141,7 @@ class CardRecognizer:
         if known_scale:                                # usual case: one match
             score, s, centre = match([known_scale])
         if score < min_score:
-            c = self.template_scale or 1.0
+            c = self.template_scale
             guesses = [round(c * f, 3) for f in (1.0, 0.96, 1.04, 0.92, 1.08)]
             score, s, centre = match([g for g in guesses if g != known_scale])
         if score < min_score and sweep:                # missed: try every scale
@@ -165,7 +167,7 @@ class CardRecognizer:
         return self._find_template("yes", min_score=0.75)
 
     def find_deck(self):
-        return self._find_template("deck")
+        return self._find_template("deck", sweep=True)
 
     def count_cards(self):
         """How many face-up cards are in the row (no OCR - fast)."""
