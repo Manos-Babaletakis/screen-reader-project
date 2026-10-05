@@ -40,5 +40,5 @@ TIMINGS = {
 
 # ============ DEBUG ============
 DEBUG = True
-SAVE_SCREENSHOTS = True       # save each read card to SCREENSHOT_DIR (for debugging)
+SAVE_SCREENSHOTS = False       # save each read card to SCREENSHOT_DIR (for debugging)
 SCREENSHOT_DIR = "./screenshots"
