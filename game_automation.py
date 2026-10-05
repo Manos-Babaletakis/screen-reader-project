@@ -64,8 +64,8 @@ class ClickerInput:
     def button(self, name, down):
         self._call("button", name, down)
 
-    def post_click(self, x, y, name="left"):
-        self._call("post_click", x, y, name)
+    def post_click(self, x, y, name="left", hold=0.08):
+        self._call("post_click", x, y, name, hold)
 
 
 
@@ -253,7 +253,7 @@ class GameAutomation:
         if DEBUG and cursor_pos() != (x, y):
             print(f"  ! cursor is at {cursor_pos()}, not ({x}, {y}) - display scaling mismatch?")
         if button == "left":
-            self.input.post_click(x, y, "left")
+            self.input.post_click(x, y, "left", TIMINGS["hold_delay"])
         else:
             self.input.button(button, True)
             time.sleep(TIMINGS["hold_delay"])

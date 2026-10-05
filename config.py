@@ -23,14 +23,14 @@ COLOR_RANGES = {
 }
 
 # ============ SOLVER ============
-SOLVER_TIME_BUDGET = 2         # seconds per decision (more = slightly better play)
+SOLVER_TIME_BUDGET = 2         # seconds per decision (more = slightly better play; above 2 s gains little)
 SOLVER_EXACT_LIMIT = 9         # solve exactly when <= this many cards are left in the deck
 
 # ============ TIMING (seconds) ============
 TIMINGS = {
-    "click_delay": 0.04,       # between clicks on cards
-    "hover_delay": 0.08,       # cursor rests on the card before pressing
-    "hold_delay": 0.06,        # how long the mouse button is held down
+    "click_delay": 0.06,       # between clicks on cards
+    "hover_delay": 0.12,       # cursor rests on the card before pressing
+    "hold_delay": 0.10,        # how long the mouse button is held down (left and right clicks)
     "settle_timeout": 1.0,     # max wait for the table to change after an action
     "poll_delay": 0.1,        # between screen reads while waiting
     "restart_timeout": 3.0,    # max wait for a new game to appear after clicking End (returns as soon as it does)

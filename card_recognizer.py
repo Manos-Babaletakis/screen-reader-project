@@ -40,6 +40,7 @@ class CardRecognizer:
         self._ocr = None
         self._ocr_kind = None
         self._tpl = {}                 # name -> (image, scale that matched)
+        self._digit_cache = {}         # card face pixels -> number (skips OCR for repeats)
         self._tpl_cache = {}           # (name, scale) -> resized template
         if SAVE_SCREENSHOTS:
             os.makedirs(SCREENSHOT_DIR, exist_ok=True)
@@ -264,8 +265,14 @@ class CardRecognizer:
             face = frame[y:y + h, x:x + w]
             face = cv2.resize(face, (REF_CARD_W, REF_CARD_H),
                               interpolation=cv2.INTER_AREA if h > REF_CARD_H else cv2.INTER_CUBIC)
-            glyph = self._glyph(face)
-            number = self._read_digit(glyph) if glyph is not None else None
+            # the game draws a card identically every time -> OCR each distinct face once
+            key = face.tobytes()
+            number = self._digit_cache.get(key)
+            if number is None:
+                glyph = self._glyph(face)
+                number = self._read_digit(glyph) if glyph is not None else None
+                if number is not None:
+                    self._digit_cache[key] = number
             cards.append({"color": colour, "number": number, "index": i,
                           "position": (int(x + ox + self.monitor["left"]), int(y + oy + self.monitor["top"]), int(w), int(h))})
             if SAVE_SCREENSHOTS:
