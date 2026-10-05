@@ -11,7 +11,7 @@ import config
 config.SAVE_SCREENSHOTS = False
 from card_recognizer import CardRecognizer
 from game_automation import (GameAutomation, bot_is_admin, window_is_elevated, integrity_at,
-                             clicks_blocked_reason, _INTEGRITY_NAMES)
+                             clicks_blocked_reason, uac_enabled, _INTEGRITY_NAMES)
 from main import relaunch_as_admin
 
 LOG = []
@@ -38,10 +38,12 @@ def main():
     if deck is None:
         log("FAIL: deck not found - is the Okey window open and not covered?"); return
     game, me = integrity_at(deck), integrity_at()
-    log(f"game level: {_INTEGRITY_NAMES.get(game, game)} | this script: {_INTEGRITY_NAMES.get(me, me)}")
-    if game is not None and game >= 0x3000:
+    log(f"game level: {_INTEGRITY_NAMES.get(game, game)} | this script: {_INTEGRITY_NAMES.get(me, me)}"
+        f" | UAC on: {uac_enabled()}")
+    log(f"clicking through: {'uiAccess helper (clicker.exe)' if auto.uiaccess else 'this script directly'}")
+    if not auto.uiaccess and game is not None and game >= 0x3000 and clicks_blocked_reason(deck):
         log("FAIL: " + clicks_blocked_reason(deck)); return
-    if window_is_elevated(deck) and not bot_is_admin():
+    if not auto.uiaccess and window_is_elevated(deck) and not bot_is_admin():
         log("relaunching as admin (accept the UAC prompt)...")
         if relaunch_as_admin():
             sys.exit(0)

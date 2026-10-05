@@ -4,11 +4,12 @@ Okey Bot.
     python main.py --play   -> plays game after game, clicking End to restart each one
                                (slam the mouse into a screen corner to abort)
 """
+import os
 import sys
 import time
 from card_recognizer import CardRecognizer
 from decision_engine import DecisionEngine
-from game_automation import GameAutomation, bot_is_admin
+from game_automation import GameAutomation, bot_is_admin, CLICKER_EXE
 from config import TIMINGS, HAND_SIZE
 
 
@@ -100,7 +101,7 @@ def relaunch_as_admin():
 
 def main():
     play = "--play" in sys.argv
-    if play and not bot_is_admin():
+    if play and not bot_is_admin() and not os.path.exists(CLICKER_EXE):   # uiAccess helper needs no admin
         print("The game runs as administrator, so the bot must too - relaunching elevated...")
         if relaunch_as_admin():
             return

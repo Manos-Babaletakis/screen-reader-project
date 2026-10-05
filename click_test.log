@@ -1,2 +1,4 @@
-game level: SYSTEM | this script: administrator
-FAIL: The game runs at SYSTEM level - above administrator - so Windows drops every click the bot sends, even when the bot runs as administrator. Close the game and start it again normally (not via a tool or service that runs it as SYSTEM).
+game level: SYSTEM | this script: administrator | UAC on: True
+clicking through: uiAccess helper (clicker.exe)
+cards on table: 1
+LEFT-click on deck  -> cards 1 -> 1: FAIL

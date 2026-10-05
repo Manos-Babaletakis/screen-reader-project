@@ -4,3 +4,4 @@ __pycache__/
 screenshots/
 calibrate_*.png
 *.msix
+build/

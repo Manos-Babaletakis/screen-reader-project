@@ -1,0 +1,22 @@
+=== SYSTEM ===
+Windows: Windows-10-10.0.19045-SP0  build 19045  Core
+Python: 3.14.8
+UAC: EnableLUA=1 ConsentPromptBehaviorAdmin=5 PromptOnSecureDesktop=1 EnableSecureUIAPaths=1
+Screen: 1920x1080, DPI 96 (100%)
+Mouse: buttons swapped=False pointer speed=10 enhance precision=1
+Antivirus: Windows Defender (state 393472); AVG Antivirus (state 270336)
+Bot (this python): level administrator, elevated False, uiAccess 0, admin=False
+uiAccess clicker installed: True
+
+=== GAME ===
+metin2client.bin pid 9080: level SYSTEM, elevated True, uiAccess 0
+  1 DLLs loaded; not from Windows: N/A
+
+=== OKEY WINDOW ===
+deck at (1304, 526)
+window under the deck: metin2client.bin (pid 9080) window "Astra2" class eter - s0:b4:p:36d56f0, exstyle 0x100
+  that process: level SYSTEM, elevated True, uiAccess 0
+  clicks blocked by Windows (bot without helper): The game runs at SYSTEM level - above administrator - so Windows drops every click the bot sends, even when the bot runs as administrator. Close the game and start it again normally (not via a tool or service that runs it as SYSTEM).
+
+=== OVERLAYS / INPUT TOOLS RUNNING ===
+NVIDIA Overlay.exe, nordvpn-service.exe, nvcontainer.exe

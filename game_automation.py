@@ -1,58 +1,81 @@
 """
 Mouse automation: left-click = select card, right-click = discard card.
 
-Input goes through SendInput - the same path as a real mouse: the cursor really moves
-(the game sees the hover) and the buttons are pressed and released at that spot.
-(pyautogui teleports the cursor with SetCursorPos, which the game client does not always
-notice, and silently swallows errors from its button presses.)
+Clicks go through SendInput (mouse_input.py). The game runs at SYSTEM level and, while UAC
+is on, Windows drops input sent to it by normal and administrator programs alike - so when
+the uiAccess helper is installed (clicker.exe, see clicker.py / build_clicker.ps1) every
+mouse action is handed to it instead. Without it the bot clicks directly.
 Slam the mouse into a screen corner to abort.
 """
 import dpi  # noqa: F401  (same pixel coordinates as the screen capture - see dpi.py)
 import ctypes
 import ctypes.wintypes as wt
+import os
+import threading
 import time
+from multiprocessing.connection import Listener
+import mouse_input
+from mouse_input import cursor_pos
 from config import TIMINGS, DEBUG
 
 _u32 = ctypes.windll.user32
 
-_MOVE, _ABSOLUTE, _VIRTUALDESK = 0x0001, 0x8000, 0x4000
-_BUTTON_FLAGS = {"left": (0x0002, 0x0004), "right": (0x0008, 0x0010)}    # (down, up)
+CLICKER_EXE = os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "OkeyClicker", "clicker.exe")
 
 
-class _MOUSEINPUT(ctypes.Structure):
-    _fields_ = [("dx", wt.LONG), ("dy", wt.LONG), ("mouseData", wt.DWORD),
-                ("dwFlags", wt.DWORD), ("time", wt.DWORD), ("dwExtraInfo", ctypes.c_size_t)]
+class ClickerInput:
+    """Same interface as mouse_input (move / button / focus_window_at), but performed by
+    the uiAccess helper clicker.exe over a private named pipe."""
+
+    def __init__(self, exe=CLICKER_EXE, timeout=10.0):
+        key = os.urandom(16)
+        address = rf"\\.\pipe\okey-clicker-{os.getpid()}-{key[:4].hex()}"
+        self._listener = Listener(address, family="AF_PIPE", authkey=key)
+        accepted = {}
+
+        def accept():
+            try:
+                accepted["conn"] = self._listener.accept()
+            except Exception as e:                 # e.g. wrong authkey
+                accepted["error"] = e
+
+        waiter = threading.Thread(target=accept, daemon=True)
+        waiter.start()
+        # uiAccess programs can only be started through the shell (CreateProcess refuses)
+        rc = ctypes.windll.shell32.ShellExecuteW(None, "open", exe, f'"{address}" {key.hex()}', None, 0)
+        if rc <= 32:
+            raise OSError(f"could not start {exe} (ShellExecute error {rc})")
+        waiter.join(timeout)
+        if "conn" not in accepted:
+            raise TimeoutError(f"clicker.exe did not connect ({accepted.get('error', 'timed out')})")
+        self._conn = accepted["conn"]
+        self._call("ping")
+
+    def _call(self, cmd, *args):
+        self._conn.send((cmd, *args))
+        status, value = self._conn.recv()
+        if status != "ok":
+            raise OSError(f"clicker.exe: {value}")
+        return value
+
+    def move(self, x, y):
+        self._call("move", x, y)
+
+    def button(self, name, down):
+        self._call("button", name, down)
+
+    def focus_window_at(self, x, y):
+        self._call("focus", x, y)
 
 
-class _INPUT(ctypes.Structure):
-    # the real INPUT is a union, but MOUSEINPUT is its largest member - same size/layout
-    _fields_ = [("type", wt.DWORD), ("mi", _MOUSEINPUT)]
-
-
-def _send(flags, dx=0, dy=0):
-    inp = _INPUT(0, _MOUSEINPUT(dx, dy, 0, flags, 0, 0))
-    if _u32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp)) != 1:
-        raise OSError(f"SendInput failed (error {ctypes.GetLastError()})")
-
-
-def _move(x, y):
-    """Move the cursor to SCREEN pixel (x, y) like a real mouse (works on any monitor)."""
-    vx, vy = _u32.GetSystemMetrics(76), _u32.GetSystemMetrics(77)      # virtual desktop origin
-    vw, vh = _u32.GetSystemMetrics(78), _u32.GetSystemMetrics(79)      # ... and size
-    _send(_MOVE | _ABSOLUTE | _VIRTUALDESK,
-          round((x - vx) * 65535 / max(vw - 1, 1)), round((y - vy) * 65535 / max(vh - 1, 1)))
-
-
-def _button(button, down):
-    if _u32.GetSystemMetrics(23):          # "swap primary and secondary buttons" is on
-        button = {"left": "right", "right": "left"}[button]
-    _send(_BUTTON_FLAGS[button][0 if down else 1])
-
-
-def cursor_pos():
-    p = wt.POINT()
-    _u32.GetCursorPos(ctypes.byref(p))
-    return p.x, p.y
+def start_input():
+    """(input backend, uses_uiaccess): the uiAccess helper if installed, else direct input."""
+    if os.path.exists(CLICKER_EXE):
+        try:
+            return ClickerInput(), True
+        except Exception as e:
+            print(f"  ! uiAccess clicker could not start ({e}) - clicking directly instead")
+    return mouse_input, False
 
 
 def _check_failsafe():
@@ -62,20 +85,6 @@ def _check_failsafe():
     vw, vh = _u32.GetSystemMetrics(78), _u32.GetSystemMetrics(79)
     if x in (vx, vx + vw - 1) and y in (vy, vy + vh - 1):
         raise KeyboardInterrupt("mouse moved to a screen corner")
-
-
-def focus_window_at(pos):
-    """Bring the (game) window under pos to the front, so the first click is not used up
-    just activating it. Returns the window handle."""
-    hwnd = _u32.GetAncestor(_u32.WindowFromPoint(wt.POINT(int(pos[0]), int(pos[1]))), 2)  # GA_ROOT
-    if hwnd and _u32.GetForegroundWindow() != hwnd:
-        # Windows only lets the process that received the last input change the foreground
-        # window - a quick Alt tap counts as input.
-        _u32.keybd_event(0x12, 0, 0, 0)
-        _u32.SetForegroundWindow(hwnd)
-        _u32.keybd_event(0x12, 0, 2, 0)
-        time.sleep(0.15)
-    return hwnd
 
 
 def bot_is_admin():
@@ -159,10 +168,21 @@ def integrity_at(pos=None):
         return None
 
 
+def uac_enabled():
+    """Windows only drops input sent to higher-level programs while UAC is on (EnableLUA=1)."""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System") as k:
+            return bool(winreg.QueryValueEx(k, "EnableLUA")[0])
+    except OSError:
+        return True
+
+
 def clicks_blocked_reason(pos):
     """A message if Windows will drop our clicks on the window at pos, else None."""
     game, me = integrity_at(pos), integrity_at()
-    if game is None or me is None or game <= me:
+    if game is None or me is None or game <= me or not uac_enabled():
         return None
     name = _INTEGRITY_NAMES.get(game, hex(game))
     if game >= 0x3000:
@@ -177,9 +197,13 @@ class GameAutomation:
     def __init__(self, dry_run=True):
         self.dry_run = dry_run
         self._checked = False
+        self.input, self.uiaccess = (mouse_input, False) if dry_run else start_input()
+        if not dry_run:
+            print("Clicking through the uiAccess helper (clicker.exe)" if self.uiaccess
+                  else "Clicking directly (uiAccess helper not installed)")
 
     def _check_elevation(self, pos):
-        if self._checked:
+        if self._checked or self.uiaccess:        # uiAccess input is never dropped
             return
         self._checked = True
         reason = clicks_blocked_reason(pos)
@@ -197,21 +221,21 @@ class GameAutomation:
         x, y = int(pos[0]), int(pos[1])
         _check_failsafe()
         self._check_elevation((x, y))
-        focus_window_at((x, y))
+        self.input.focus_window_at(x, y)
         if DEBUG:
             print(f"  {button}-click at ({x}, {y})")
         sx, sy = cursor_pos()
         for i in range(1, 6):                   # a few real move events on the way there
-            _move(sx + (x - sx) * i / 5, sy + (y - sy) * i / 5)
+            self.input.move(sx + (x - sx) * i / 5, sy + (y - sy) * i / 5)
             time.sleep(0.01)
-        _move(x + 1, y + 1)                     # tiny wiggle so the game registers the hover
-        _move(x, y)
+        self.input.move(x + 1, y + 1)           # tiny wiggle so the game registers the hover
+        self.input.move(x, y)
         time.sleep(TIMINGS["hover_delay"])
         if DEBUG and cursor_pos() != (x, y):
             print(f"  ! cursor is at {cursor_pos()}, not ({x}, {y}) - display scaling mismatch?")
-        _button(button, True)
+        self.input.button(button, True)
         time.sleep(TIMINGS["hold_delay"])
-        _button(button, False)
+        self.input.button(button, False)
         time.sleep(TIMINGS["click_delay"])
 
     def click(self, pos):
