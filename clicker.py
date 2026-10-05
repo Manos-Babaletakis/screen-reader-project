@@ -19,7 +19,7 @@ import mouse_input
 COMMANDS = {
     "move": mouse_input.move,
     "button": mouse_input.button,
-    "focus": mouse_input.focus_window_at,
+    "post_click": mouse_input.post_click,
     "ping": lambda: "pong",
 }
 

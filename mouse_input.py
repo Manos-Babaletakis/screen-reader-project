@@ -50,14 +50,22 @@ def cursor_pos():
     return p.x, p.y
 
 
-def focus_window_at(x, y):
-    """Bring the (game) window under (x, y) to the front, so the first click is not used up
-    just activating it."""
-    hwnd = _u32.GetAncestor(_u32.WindowFromPoint(wt.POINT(int(x), int(y))), 2)    # GA_ROOT
-    if hwnd and _u32.GetForegroundWindow() != hwnd:
-        # Windows only lets the process that received the last input change the foreground
-        # window - a quick Alt tap counts as input.
-        _u32.keybd_event(0x12, 0, 0, 0)
-        _u32.SetForegroundWindow(hwnd)
-        _u32.keybd_event(0x12, 0, 2, 0)
-        time.sleep(0.15)
+_WM_MOUSEMOVE = 0x0200
+_WM_BUTTON = {"left": (0x0201, 0x0202, 0x0001), "right": (0x0204, 0x0205, 0x0002)}  # (down, up, MK_)
+
+
+def post_click(x, y, name="left", hold=0.08):
+    """Click by posting the button messages straight to the window at SCREEN pixel (x, y).
+    The game ignores left presses that come through SendInput, but accepts these."""
+    _u32.PostMessageW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
+    hwnd = _u32.WindowFromPoint(wt.POINT(int(x), int(y)))
+    p = wt.POINT(int(x), int(y))
+    _u32.ScreenToClient(hwnd, ctypes.byref(p))
+    lparam = (p.y & 0xFFFF) << 16 | (p.x & 0xFFFF)
+    down, up, mk = _WM_BUTTON[name]
+    _u32.PostMessageW(hwnd, _WM_MOUSEMOVE, 0, lparam)
+    time.sleep(0.03)
+    if not _u32.PostMessageW(hwnd, down, mk, lparam):
+        raise OSError(f"PostMessage failed (error {ctypes.GetLastError()})")
+    time.sleep(hold)
+    _u32.PostMessageW(hwnd, up, 0, lparam)

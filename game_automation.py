@@ -1,10 +1,10 @@
 """
 Mouse automation: left-click = select card, right-click = discard card.
 
-Clicks go through SendInput (mouse_input.py). The game runs at SYSTEM level and, while UAC
-is on, Windows drops input sent to it by normal and administrator programs alike - so when
-the uiAccess helper is installed (clicker.exe, see clicker.py / build_clicker.ps1) every
-mouse action is handed to it instead. Without it the bot clicks directly.
+Clicks go through SendInput (mouse_input.py). The game runs as administrator and, while UAC
+is on, Windows drops input sent to it by programs at a lower level - so the bot must run as
+administrator too (main.py relaunches itself elevated). If the optional uiAccess helper is
+installed (clicker.exe, see clicker.py / build_clicker.ps1) mouse actions go through it.
 Slam the mouse into a screen corner to abort.
 """
 import dpi  # noqa: F401  (same pixel coordinates as the screen capture - see dpi.py)
@@ -24,7 +24,7 @@ CLICKER_EXE = os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), 
 
 
 class ClickerInput:
-    """Same interface as mouse_input (move / button / focus_window_at), but performed by
+    """Same interface as mouse_input (move / button), but performed by
     the uiAccess helper clicker.exe over a private named pipe."""
 
     def __init__(self, exe=CLICKER_EXE, timeout=10.0):
@@ -64,8 +64,9 @@ class ClickerInput:
     def button(self, name, down):
         self._call("button", name, down)
 
-    def focus_window_at(self, x, y):
-        self._call("focus", x, y)
+    def post_click(self, x, y, name="left"):
+        self._call("post_click", x, y, name)
+
 
 
 def start_input():
@@ -76,6 +77,19 @@ def start_input():
         except Exception as e:
             print(f"  ! uiAccess clicker could not start ({e}) - clicking directly instead")
     return mouse_input, False
+
+
+def _deactivate_game():
+    """Make the taskbar the active window, so the game is not active when it gets clicked.
+    Windows only lets a background program change the active window right after it sent
+    input - hence the Alt tap. The bot runs at normal level while the game runs as
+    administrator, so Windows keeps that Alt tap away from the game itself."""
+    if bot_is_admin():           # an admin bot's Alt tap WOULD reach the game -> skip
+        return
+    _u32.keybd_event(0x12, 0, 0, 0)
+    _u32.SetForegroundWindow(_u32.FindWindowW("Shell_TrayWnd", None))
+    _u32.keybd_event(0x12, 0, 0x0002, 0)
+    time.sleep(0.15)
 
 
 def _check_failsafe():
@@ -122,7 +136,8 @@ def window_is_elevated(pos):
         return None
 
 
-_INTEGRITY_NAMES = {0x1000: "normal", 0x2000: "administrator", 0x3000: "SYSTEM", 0x4000: "protected"}
+# Windows mandatory integrity levels (the RID of the token's integrity SID)
+_INTEGRITY_NAMES = {0x1000: "low", 0x2000: "normal", 0x3000: "administrator", 0x4000: "SYSTEM"}
 
 
 def _integrity_of_token(tok):
@@ -139,7 +154,7 @@ def _integrity_of_token(tok):
 
 
 def integrity_at(pos=None):
-    """Windows integrity level (0x1000 normal, 0x2000 admin, 0x3000 SYSTEM) of the process
+    """Windows integrity level (0x2000 normal, 0x3000 administrator, 0x4000 SYSTEM) of the process
     owning the window at screen pos - or of this process when pos is None. None = unknown.
     Windows drops mouse input sent to a process with a HIGHER level than the sender."""
     k32, a32 = ctypes.windll.kernel32, ctypes.windll.advapi32
@@ -185,7 +200,7 @@ def clicks_blocked_reason(pos):
     if game is None or me is None or game <= me or not uac_enabled():
         return None
     name = _INTEGRITY_NAMES.get(game, hex(game))
-    if game >= 0x3000:
+    if game >= 0x4000:
         return (f"The game runs at {name} level - above administrator - so Windows drops every "
                 f"click the bot sends, even when the bot runs as administrator. Close the game "
                 f"and start it again normally (not via a tool or service that runs it as SYSTEM).")
@@ -216,14 +231,18 @@ class GameAutomation:
         return x + w // 2, y + h // 2
 
     def _press(self, pos, button="left"):
-        """A click the game actually registers: glide onto the spot, hover, then hold the
-        button briefly. (Teleport + press + release in the same instant is often missed.)"""
+        """A click the game actually registers (tested on the game):
+        - left : the game ignores left presses sent through SendInput, so the click is
+                 posted to its window as button messages (the cursor still glides there)
+        - right: a SendInput right-click works, but only if the game is not the active
+                 window at that moment - so another window is made active first."""
         x, y = int(pos[0]), int(pos[1])
         _check_failsafe()
         self._check_elevation((x, y))
-        self.input.focus_window_at(x, y)
         if DEBUG:
             print(f"  {button}-click at ({x}, {y})")
+        if button == "right":
+            _deactivate_game()
         sx, sy = cursor_pos()
         for i in range(1, 6):                   # a few real move events on the way there
             self.input.move(sx + (x - sx) * i / 5, sy + (y - sy) * i / 5)
@@ -233,9 +252,12 @@ class GameAutomation:
         time.sleep(TIMINGS["hover_delay"])
         if DEBUG and cursor_pos() != (x, y):
             print(f"  ! cursor is at {cursor_pos()}, not ({x}, {y}) - display scaling mismatch?")
-        self.input.button(button, True)
-        time.sleep(TIMINGS["hold_delay"])
-        self.input.button(button, False)
+        if button == "left":
+            self.input.post_click(x, y, "left")
+        else:
+            self.input.button(button, True)
+            time.sleep(TIMINGS["hold_delay"])
+            self.input.button(button, False)
         time.sleep(TIMINGS["click_delay"])
 
     def click(self, pos):
