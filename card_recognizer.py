@@ -41,6 +41,7 @@ class CardRecognizer:
         self._ocr_kind = None
         self._tpl = {}                 # name -> (image, scale that matched)
         self._digit_cache = {}         # card face pixels -> number (skips OCR for repeats)
+        self._shared_scale = None      # last scale any template matched at
         self._tpl_cache = {}           # (name, scale) -> resized template
         if SAVE_SCREENSHOTS:
             os.makedirs(SCREENSHOT_DIR, exist_ok=True)
@@ -138,13 +139,20 @@ class CardRecognizer:
                     best = (score, s, ((loc[0] + t.shape[1] // 2) * shrink, (loc[1] + t.shape[0] // 2) * shrink))
             return best
 
-        score = -1
-        if known_scale:                                # usual case: one match
-            score, s, centre = match([known_scale])
-        if score < min_score:
+        # The Yes button is small: it only scores high within ~1-2 % of the right scale, and
+        # the scale guessed from the card height (51-52 px) is right on that edge. So try
+        # this template's last scale, then the scale another template (the deck - found
+        # before any discard) matched at - all were cut at the same zoom - and only guess
+        # from the card height (in 2 % steps) when nothing has matched yet.
+        score, tried = -1, []
+        for first in (known_scale, self._shared_scale):
+            if first and first not in tried and score < min_score:
+                tried.append(first)
+                score, s, centre = match([first])
+        if score < min_score and not tried:
             c = self.template_scale
-            guesses = [round(c * f, 3) for f in (1.0, 0.96, 1.04, 0.92, 1.08)]
-            score, s, centre = match([g for g in guesses if g != known_scale])
+            guesses = [round(c * f, 3) for f in (1.0, 0.98, 1.02, 0.96, 1.04, 0.92, 1.08)]
+            score, s, centre = match(guesses)
         if score < min_score and sweep:                # missed: try every scale
             half = cv2.resize(frame, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA)
             _, coarse, _ = match(SWEEP_SCALES, half, shrink=2)
@@ -155,6 +163,7 @@ class CardRecognizer:
         if score < min_score:
             return None
         self._tpl[name] = (self._tpl[name][0], s)
+        self._shared_scale = s
         return centre[0] + self.monitor["left"], centre[1] + self.monitor["top"]
 
     def find_end_button(self):
